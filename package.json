@@ -1,0 +1,48 @@
+{
+  "name": "opencode-idle-poke",
+  "version": "0.1.0",
+  "description": "An OpenCode plugin that proactively sends you a message when you have been silent for a while, with a configurable interval, per-session on/off markers, and an optional adaptive interval.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README-zh.md",
+    "LICENSE",
+    "opencode-idle-poke-config.md"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "idle",
+    "proactive",
+    "reminder",
+    "assistant"
+  ],
+  "engines": {
+    "opencode": ">=1.18.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.14",
+    "@opencode-ai/sdk": "1.18.14",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit -p tests/tsconfig.json",
+    "test": "vitest run --config tests/vitest.config.ts",
+    "prepublishOnly": "npm run build"
+  }
+}
