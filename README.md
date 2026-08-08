@@ -6,7 +6,7 @@ English | [中文](README-zh.md)
 
 # opencode-idle-poke
 
-An OpenCode plugin that proactively sends you a message when you have been silent for a while, with a configurable interval, per-session on/off markers, and an optional adaptive interval.
+An OpenCode plugin that proactively sends you a message when you have been silent for a while, with a configurable interval, per-session on/off markers, and an optional adaptive interval. It is not usable in one-shot CLI mode.
 
 ## Features
 
@@ -71,6 +71,7 @@ See the full reference in the packaged [`opencode-idle-poke-config.md`](opencode
 - The idle timer keeps running while you type in an external editor, so a poke can arrive mid-work; adjust the interval or turn pokes off if this bothers you.
 - During a rapid tab switch, a single poke may land in the previous session.
 - Language adaptation is untested. The default templates ask the model to reply in the user's language, but the plugin itself has only been tested with English and Chinese; the interval marker supports English and Chinese only.
+- Not usable in one-shot CLI mode (`opencode run "..."`): the process exits as soon as the session goes idle, so the idle timer never fires and no poke is sent.
 
 ## Development
 

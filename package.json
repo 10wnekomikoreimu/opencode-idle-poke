@@ -1,7 +1,16 @@
 {
   "name": "opencode-idle-poke",
   "version": "0.1.0",
-  "description": "An OpenCode plugin that proactively sends you a message when you have been silent for a while, with a configurable interval, per-session on/off markers, and an optional adaptive interval.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/10wnekomikoreimu/opencode-idle-poke.git"
+  },
+  "homepage": "https://github.com/10wnekomikoreimu/opencode-idle-poke#readme",
+  "bugs": {
+    "url": "https://github.com/10wnekomikoreimu/opencode-idle-poke/issues"
+  },
+  "description": "An OpenCode plugin that proactively sends you a message when you have been silent for a while, with a configurable interval, per-session on/off markers, and an optional adaptive interval. Not usable in one-shot CLI mode.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
