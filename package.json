@@ -1,6 +1,6 @@
 {
   "name": "opencode-idle-poke",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,9 +37,6 @@
   ],
   "engines": {
     "opencode": ">=1.18.0"
-  },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.18.0"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.14",

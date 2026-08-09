@@ -19,15 +19,15 @@ An OpenCode plugin that proactively sends you a message when you have been silen
 
 ## Installation
 
-Add the plugin to the `plugin` array in `opencode.json` (or `opencode.jsonc`):
+Add the plugin to the `plugin` array in `opencode.json` (or `opencode.jsonc`). Always include a version tag (a pinned version such as `@0.1.1`, or `@latest`); otherwise OpenCode may download an extra cache folder that has no version suffix:
 
 ```jsonc
 {
-  "plugin": ["opencode-idle-poke"]
+  "plugin": ["opencode-idle-poke@0.1.1"]
 }
 ```
 
-That's it. OpenCode installs npm plugins via Bun automatically at startup and caches them in `~/.cache/opencode/node_modules/`.
+OpenCode installs npm plugins via Bun automatically at startup and caches them in `~/.cache/opencode/packages/`.
 
 ## Quick start
 

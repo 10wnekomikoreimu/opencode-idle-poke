@@ -45,7 +45,16 @@ Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `ope
 
 The long text fields (`messageTemplate`, `restartNotification`, `protocol`, `predictor.prompt`) have sensible defaults shown below; only set them if you want to customize.
 
-Instead of options, you can put the same object in `~/.config/opencode/opencode-idle-poke.json` (plain JSON, no comments). It is read when no options are given.
+Instead of passing options, you can put the settings object directly at the top level of `~/.config/opencode/opencode-idle-poke.json` (plain JSON, no comments). It is read when no options are given:
+
+```json
+{
+  "idleMs": 120000,
+  "requireEngagement": true,
+  "enabled": true,
+  ...
+}
+```
 
 ## Configuration Priority
 
@@ -199,7 +208,16 @@ Example:
 
 `messageTemplate`、`restartNotification`、`protocol`、`predictor.prompt` 四个长文本字段有合理的默认值（见下文），仅在需要定制时才设置。
 
-也可以不传 options，把同样的内容写到 `~/.config/opencode/opencode-idle-poke.json`（严格 JSON，不支持注释），未传 options 时读取该文件。
+也可以不传 options，把设置对象直接作为文件顶层内容写入 `~/.config/opencode/opencode-idle-poke.json`（严格 JSON，不支持注释），未传 options 时读取该文件：
+
+```json
+{
+  "idleMs": 120000,
+  "requireEngagement": true,
+  "enabled": true,
+  ...
+}
+```
 
 ## 配置优先级
 

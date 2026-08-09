@@ -19,15 +19,15 @@
 
 ## 安装
 
-在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中添加：
+在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中添加。始终带上版本后缀（固定版本如 `@0.1.1`，或 `@latest`），否则 OpenCode 可能多下载一个不带版本后缀的缓存目录：
 
 ```jsonc
 {
-  "plugin": ["opencode-idle-poke"]
+  "plugin": ["opencode-idle-poke@0.1.1"]
 }
 ```
 
-即可。OpenCode 启动时会用 Bun 自动安装 npm 插件，并缓存到 `~/.cache/opencode/node_modules/`。
+OpenCode 启动时会用 Bun 自动安装 npm 插件，并缓存到 `~/.cache/opencode/packages/`。
 
 ## 快速开始
 
