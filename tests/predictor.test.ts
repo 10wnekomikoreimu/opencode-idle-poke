@@ -184,4 +184,84 @@ describe("predictor", () => {
     expect(calls.prompt.some((c) => c.path.id === subID && c.body.system === "assess")).toBe(true)
     await p.dispose()
   })
+
+  it("excludes synthetic user messages from the excerpt", async () => {
+    const { client, calls } = makeClient()
+    client.setMessages([
+      { info: { role: "user" }, parts: [{ type: "text", text: "real question", synthetic: false }] },
+      { info: { role: "user" }, parts: [{ type: "text", text: "synthetic noise", synthetic: true }] },
+    ])
+    client.setPromptHandler(markerHandler("[Remind: 2 minutes]"))
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
+    const text = subPrompt.body.parts[0].text
+    expect(text).toContain("real question")
+    expect(text).not.toContain("synthetic noise")
+    await p.dispose()
+  })
+
+  it("skips prediction when session.messages returns a non-array", async () => {
+    const { client, calls } = makeClient()
+    client.setMessages(null as any)
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(calls.create).toHaveLength(0)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 60 seconds")
+    await p.dispose()
+  })
+
+  it("recovers when the predictor sub-prompt rejects", async () => {
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) throw new Error("sub boom")
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(calls.create).toHaveLength(1)
+    expect(calls.delete).toHaveLength(1)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 60 seconds")
+    await p.dispose()
+  })
+
+  it("resets pendingPoke after a failed poke so it can retry", async () => {
+    let attempts = 0
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) return { data: { parts: [] } }
+      const text = (arg.body.parts as any[])?.[0]?.text ?? ""
+      if (text.startsWith("[System notification]")) return { data: { parts: [] } }
+      attempts++
+      if (attempts === 1) throw new Error("main boom")
+      return { data: { parts: [{ type: "text", text: "ok", synthetic: false }] } }
+    })
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(1)
+    msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(2)
+    await p.dispose()
+  })
 })

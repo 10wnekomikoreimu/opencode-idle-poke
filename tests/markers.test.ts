@@ -169,4 +169,117 @@ describe("marker protocol", () => {
     expect(pokes(calls)).toHaveLength(1)
     await p.dispose()
   })
+
+  it("[Remind: 19s] below the 20s floor is ignored", async () => {
+    setConfigFixture({ idleMs: 60_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const c = complete("s1", "[Remind: 19s]")
+    await p["experimental.text.complete"](c.input, c.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 60 seconds")
+    await p.dispose()
+  })
+
+  it("[Remind: 25 hours] above the 24h ceiling is ignored", async () => {
+    setConfigFixture({ idleMs: 60_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const c = complete("s1", "[Remind: 25 hours]")
+    await p["experimental.text.complete"](c.input, c.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 60 seconds")
+    await p.dispose()
+  })
+
+  it("[Remind: 30] with no unit defaults to seconds", async () => {
+    setConfigFixture({ idleMs: 60_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const c = complete("s1", "[Remind: 30]")
+    await p["experimental.text.complete"](c.input, c.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(30_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 30 seconds")
+    await p.dispose()
+  })
+
+  it("chinese marker 〔提醒间隔=1小时〕 is recognized", async () => {
+    setConfigFixture({ idleMs: 60_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const c = complete("s1", "〔提醒间隔=1小时〕")
+    await p["experimental.text.complete"](c.input, c.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(3_540_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 3600 seconds")
+    await p.dispose()
+  })
+
+  it("custom marker names are honored", async () => {
+    setConfigFixture({
+      idleMs: 60_000,
+      enableMarker: "[继续]",
+      disableMarker: "[停止]",
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const off = complete("s1", "[停止]")
+    await p["experimental.text.complete"](off.input, off.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    const on = complete("s1", "[继续]")
+    await p["experimental.text.complete"](on.input, on.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(1)
+    await p.dispose()
+  })
+
+  it("[Poke Off] and [Remind] in the same reply both apply", async () => {
+    setConfigFixture({ idleMs: 60_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    let msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const c = complete("s1", "[Poke Off]\n[Remind: 2 minutes]")
+    await p["experimental.text.complete"](c.input, c.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    const on = complete("s1", "[Poke On]")
+    await p["experimental.text.complete"](on.input, on.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 120 seconds")
+    await p.dispose()
+  })
 })

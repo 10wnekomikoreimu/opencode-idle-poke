@@ -140,4 +140,51 @@ describe("plugin lifecycle", () => {
     expect(notifications(calls)).toHaveLength(0)
     await p.dispose()
   })
+
+  it("chat.message ignores predictor sub-sessions", async () => {
+    setConfigFixture({
+      idleMs: 60_000,
+      predictor: { enabled: true, maxMessages: 6, agent: "", model: "", timeoutMs: 15_000, prompt: "assess", denyTools: [] },
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    let release: (() => void) | undefined
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) {
+        await new Promise<void>((res) => {
+          release = res
+        })
+        return { data: { parts: [{ type: "text", text: "[Remind: 1 minutes]", synthetic: false }] } }
+      }
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subID = calls.create[0].id
+    expect(release).toBeDefined()
+    const notifsBefore = notifications(calls).length
+    await p["chat.message"]({ sessionID: subID }, { parts: [{ type: "text", text: "ignore me", synthetic: false }] })
+    expect(notifications(calls)).toHaveLength(notifsBefore)
+    release!()
+    await vi.advanceTimersByTimeAsync(0)
+    await p.dispose()
+  })
+
+  it("clears the idle timer on retry status", async () => {
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const { input, output } = userMessage("s1")
+    await p["chat.message"](input, output)
+    await p.event(idleEvent("s1"))
+    await p.event({
+      event: { type: "session.status", properties: { sessionID: "s1", status: { type: "retry" } } },
+    })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await p.dispose()
+  })
 })

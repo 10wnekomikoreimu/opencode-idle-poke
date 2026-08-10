@@ -6,11 +6,13 @@ import {
   makePlugin,
   userMessage,
   idleEvent,
+  deletedEvent,
   setConfigFixture,
   setJsonFixture,
   resetConfig,
   testConfigDir,
   pokes,
+  notifications,
 } from "./helpers"
 
 describe("config loading", () => {
@@ -129,5 +131,216 @@ describe("config loading", () => {
     const content = await readFile(logPath, "utf8")
     expect(content).toContain("[INFO] plugin initialized")
     await rm(logPath, { force: true })
+  })
+
+  it("enabled:false keeps pokes off at startup until [Poke On]", async () => {
+    setConfigFixture({ enabled: false, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    const on = { input: { sessionID: "s1", messageID: "m", partID: "p" }, output: { text: "[Poke On]" } }
+    await p["experimental.text.complete"](on.input, on.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(1)
+    await p.dispose()
+  })
+
+  it("requireEngagement:false pokes even when the session was recreated", async () => {
+    setConfigFixture({ requireEngagement: false, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(deletedEvent("s1"))
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(1)
+    await p.dispose()
+  })
+
+  it("empty logging.file writes no log file", async () => {
+    const logPath = join(testConfigDir, "logs", "opencode-idle-poke.log")
+    setConfigFixture({ logging: { enabled: true, file: "" } })
+    const { client } = makeClient()
+    const p = await makePlugin(client)
+    await p.dispose()
+    await expect(readFile(logPath, "utf8")).rejects.toThrow()
+  })
+
+  it("accepts an array as plugin options and falls back to defaults", async () => {
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client, "C:\\Users\\test\\proj", [] as unknown as Record<string, unknown>)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.body.parts[0].text).toContain("about 60 seconds")
+    await p.dispose()
+  })
+
+  it("rejects NaN/Infinity/zero idleMs and falls back to 60000", async () => {
+    for (const bad of [NaN, Infinity, 0]) {
+      setConfigFixture({ idleMs: bad, logging: { enabled: false } })
+      const { client, calls } = makeClient()
+      const p = await makePlugin(client)
+      const msg = userMessage("s1")
+      await p["chat.message"](msg.input, msg.output)
+      await p.event(idleEvent("s1"))
+      await vi.advanceTimersByTimeAsync(60_000)
+      const poke = pokes(calls)[0]
+      expect(poke).toBeTruthy()
+      expect(poke.body.parts[0].text).toContain("about 60 seconds")
+      await p.dispose()
+    }
+  })
+
+  it("accepts a very large idleMs (3e9) without clamping the config", async () => {
+    setConfigFixture({ idleMs: 3_000_000_000, logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const notif = notifications(calls)[0]
+    expect(notif).toBeTruthy()
+    expect(notif.body.parts[0].text).toContain("interval 3000000s")
+    await p.dispose()
+  })
+
+  it("blank enableMarker/disableMarker fall back to defaults", async () => {
+    setConfigFixture({ enableMarker: "", disableMarker: "   ", logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const off = { input: { sessionID: "s1", messageID: "m", partID: "p" }, output: { text: "[Poke Off]" } }
+    await p["experimental.text.complete"](off.input, off.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await p.dispose()
+  })
+
+  it("blank protocol/restartNotification fall back to defaults", async () => {
+    setConfigFixture({ protocol: "", restartNotification: "   ", logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const out = { system: [] as string[] }
+    await p["experimental.chat.system.transform"]({ sessionID: "s1", model: {} }, out)
+    expect(out.system[0]).toContain("[Poke Off]")
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    const notif = notifications(calls)[0]
+    expect(notif).toBeTruthy()
+    expect(notif.body.parts[0].text).toContain("poke on")
+    await p.dispose()
+  })
+
+  it("non-array denyTools keeps the default deny list", async () => {
+    setConfigFixture({
+      predictor: { enabled: true, denyTools: "read", prompt: "assess" },
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) {
+        return { data: { parts: [{ type: "text", text: "[Remind: 2 minutes]", synthetic: false }] } }
+      }
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
+    expect(subPrompt.body.tools.read).toBe(false)
+    expect(subPrompt.body.tools.bash).toBe(false)
+    await p.dispose()
+  })
+
+  it("denyTools filters out non-string entries", async () => {
+    setConfigFixture({
+      predictor: { enabled: true, denyTools: [42, "bash", null], prompt: "assess" },
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) {
+        return { data: { parts: [{ type: "text", text: "[Remind: 2 minutes]", synthetic: false }] } }
+      }
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
+    expect(subPrompt.body.tools).toEqual({ bash: false })
+    await p.dispose()
+  })
+
+  it("fractional maxMessages is floored when building the excerpt", async () => {
+    setConfigFixture({
+      idleMs: 60_000,
+      predictor: { enabled: true, maxMessages: 2.5, prompt: "assess" },
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    client.setMessages([
+      { info: { role: "user" }, parts: [{ type: "text", text: "first", synthetic: false }] },
+      { info: { role: "user" }, parts: [{ type: "text", text: "second", synthetic: false }] },
+      { info: { role: "user" }, parts: [{ type: "text", text: "third", synthetic: false }] },
+    ])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) {
+        return { data: { parts: [{ type: "text", text: "[Remind: 2 minutes]", synthetic: false }] } }
+      }
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
+    const text = subPrompt.body.parts[0].text
+    expect(text).toContain("second")
+    expect(text).toContain("third")
+    expect(text).not.toContain("first")
+    await p.dispose()
+  })
+
+  it("non-string predictor agent/model fall back to empty", async () => {
+    setConfigFixture({
+      predictor: { enabled: true, agent: 123, model: true, prompt: "assess" },
+      logging: { enabled: false },
+    })
+    const { client, calls } = makeClient()
+    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
+    client.setPromptHandler(async (arg: any) => {
+      if (arg.path.id.startsWith("sub-")) {
+        return { data: { parts: [{ type: "text", text: "[Remind: 2 minutes]", synthetic: false }] } }
+      }
+      return { data: { parts: [] } }
+    })
+    const p = await makePlugin(client)
+    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(60_000)
+    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
+    expect(subPrompt.body.agent).toBeUndefined()
+    expect(subPrompt.body.model).toEqual({ providerID: "p", modelID: "m" })
+    await p.dispose()
   })
 })
