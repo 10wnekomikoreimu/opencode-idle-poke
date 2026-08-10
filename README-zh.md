@@ -19,11 +19,11 @@
 
 ## 安装
 
-在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中添加。始终带上版本后缀（固定版本如 `@0.1.1`，或 `@latest`），否则 OpenCode 可能多下载一个不带版本后缀的缓存目录：
+在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中添加。始终带上版本后缀（固定版本如 `@0.1.2`，或 `@latest`），否则 OpenCode 可能多下载一个不带版本后缀的缓存目录：
 
 ```jsonc
 {
-  "plugin": ["opencode-idle-poke@0.1.1"]
+  "plugin": ["opencode-idle-poke@0.1.2"]
 }
 ```
 

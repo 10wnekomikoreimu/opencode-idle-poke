@@ -391,7 +391,7 @@ export const OpencodeIdlePokePlugin: Plugin = async (input, options) => {
     },
     "chat.message": async (msg, output) => {
       if (predictorSessions.has(msg.sessionID)) return
-      if (output.parts.some((p) => (p as { synthetic?: boolean }).synthetic)) return
+      if (output.parts?.some((p) => (p as { synthetic?: boolean }).synthetic)) return
       const sessionID = msg.sessionID
       const s = ensure(sessionID)
       if (msg.agent) s.agent = msg.agent

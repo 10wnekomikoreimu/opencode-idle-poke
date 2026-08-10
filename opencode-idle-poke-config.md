@@ -8,13 +8,12 @@ Configuration reference for the opencode-idle-poke plugin. Installation and gett
 
 ## Complete Configuration Example
 
-Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `opencode.jsonc`). To customize it, pass a settings object right after the package name:
+Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `opencode.jsonc`). To customize it, follow the example below:
 
 ```jsonc
 {
   "plugin": [
-    "opencode-idle-poke",
-    {
+    ["opencode-idle-poke", {
       "idleMs": 120000,
       "requireEngagement": true,
       "enabled": true,
@@ -38,7 +37,7 @@ Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `ope
         "level": "info",
         "file": "logs/opencode-idle-poke.log"
       }
-    }
+    }]
   ]
 }
 ```
@@ -60,7 +59,7 @@ Instead of passing options, you can put the settings object directly at the top 
 
 When configured in several places, the first match wins:
 
-1. Plugin options (the object in the example above).
+1. Plugin options (in opencode.json or opencode.jsonc).
 2. `~/.config/opencode/opencode-idle-poke.json` — create it manually; the plugin will not create it for you.
 3. Built-in defaults (see the field table below).
 
@@ -171,13 +170,12 @@ Example:
 
 ## 完整配置示例
 
-在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中启用插件；在包名后跟一个设置对象即可定制：
+在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中启用插件；如需定制，请参考下面的示例：
 
 ```jsonc
 {
   "plugin": [
-    "opencode-idle-poke",
-    {
+    ["opencode-idle-poke", {
       "idleMs": 120000,
       "requireEngagement": true,
       "enabled": true,
@@ -201,7 +199,7 @@ Example:
         "level": "info",
         "file": "logs/opencode-idle-poke.log"
       }
-    }
+    }]
   ]
 }
 ```
@@ -223,7 +221,7 @@ Example:
 
 多处配置时按以下顺序取第一个可用的来源：
 
-1. 插件 options（上方示例中的对象）。
+1. 插件选项（在 opencode.json 或 opencode.jsonc 中指定）。
 2. `~/.config/opencode/opencode-idle-poke.json`——需手动创建，插件不会自动生成。
 3. 内置默认值（见下方字段表）。
 
