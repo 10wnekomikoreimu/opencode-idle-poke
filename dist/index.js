@@ -46,6 +46,7 @@ const DEFAULTS = {
             "mcp__*",
         ],
     },
+    ignoreSessionTitles: [],
     logging: {
         enabled: true,
         level: "info",
@@ -123,6 +124,9 @@ function toConfig(raw) {
         config.predictor.prompt = p.prompt;
     if (Array.isArray(p.denyTools)) {
         config.predictor.denyTools = p.denyTools.filter((id) => typeof id === "string");
+    }
+    if (Array.isArray(r.ignoreSessionTitles)) {
+        config.ignoreSessionTitles = r.ignoreSessionTitles.filter((s) => typeof s === "string" && s.trim() !== "");
     }
     const l = (r.logging ?? {});
     if (typeof l.enabled === "boolean")
@@ -202,6 +206,7 @@ export const OpencodeIdlePokePlugin = async (input, options) => {
         logFile: config.logging.file,
     });
     const sessions = new Map();
+    const sessionTitles = new Map();
     let lastActive = "";
     const ensure = (sessionID) => {
         let s = sessions.get(sessionID);
@@ -219,8 +224,20 @@ export const OpencodeIdlePokePlugin = async (input, options) => {
             s.timer = undefined;
         }
     };
+    const isIgnored = (sessionID) => {
+        const title = sessionTitles.get(sessionID);
+        if (title === undefined)
+            return false;
+        if (config.ignoreSessionTitles.includes(title)) {
+            log("debug", "session ignored (title match)", { sessionID, title });
+            return true;
+        }
+        return false;
+    };
     const onIdle = (sessionID) => {
         if (sessionID !== lastActive)
+            return;
+        if (isIgnored(sessionID))
             return;
         const s = ensure(sessionID);
         if (config.requireEngagement && !s.engaged)
@@ -379,10 +396,19 @@ export const OpencodeIdlePokePlugin = async (input, options) => {
                 else if (status.type === "idle")
                     onIdle(sessionID);
             }
+            else if (event.type === "session.created" || event.type === "session.updated") {
+                const sessionID = event.properties.info.id;
+                const title = event.properties.info.title;
+                if (title) {
+                    sessionTitles.set(sessionID, title);
+                    log("debug", "session title recorded", { sessionID, title });
+                }
+            }
             else if (event.type === "session.deleted") {
                 const sessionID = event.properties.info.id;
                 clearTimer(sessionID);
                 sessions.delete(sessionID);
+                sessionTitles.delete(sessionID);
                 log("debug", "session deleted", { sessionID });
             }
         },
@@ -392,6 +418,16 @@ export const OpencodeIdlePokePlugin = async (input, options) => {
             if (output.parts?.some((p) => p.synthetic))
                 return;
             const sessionID = msg.sessionID;
+            if (sessionTitles.get(sessionID) === undefined) {
+                try {
+                    const info = await client.session.get({ path: { id: sessionID } });
+                    if (info.data?.title)
+                        sessionTitles.set(sessionID, info.data.title);
+                }
+                catch { }
+            }
+            if (isIgnored(sessionID))
+                return;
             const s = ensure(sessionID);
             if (msg.agent)
                 s.agent = msg.agent;

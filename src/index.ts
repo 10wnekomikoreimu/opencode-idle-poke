@@ -55,6 +55,7 @@ const DEFAULTS = {
       "mcp__*",
     ],
   },
+  ignoreSessionTitles: [] as string[],
   logging: {
     enabled: true,
     level: "info" as LogLevel,
@@ -136,6 +137,11 @@ function toConfig(raw: unknown): Config {
   if (Array.isArray(p.denyTools)) {
     config.predictor.denyTools = p.denyTools.filter((id): id is string => typeof id === "string")
   }
+  if (Array.isArray(r.ignoreSessionTitles)) {
+    config.ignoreSessionTitles = r.ignoreSessionTitles.filter(
+      (s): s is string => typeof s === "string" && s.trim() !== ""
+    )
+  }
   const l = (r.logging ?? {}) as Record<string, unknown>
   if (typeof l.enabled === "boolean") config.logging.enabled = l.enabled
   if (typeof l.level === "string" && l.level in LOG_LEVELS) config.logging.level = l.level as LogLevel
@@ -210,6 +216,7 @@ export const OpencodeIdlePokePlugin: Plugin = async (input, options) => {
   })
 
   const sessions = new Map<string, SessionState>()
+  const sessionTitles = new Map<string, string>()
   let lastActive = ""
 
   const ensure = (sessionID: string): SessionState => {
@@ -230,8 +237,19 @@ export const OpencodeIdlePokePlugin: Plugin = async (input, options) => {
     }
   }
 
+  const isIgnored = (sessionID: string): boolean => {
+    const title = sessionTitles.get(sessionID)
+    if (title === undefined) return false
+    if (config.ignoreSessionTitles.includes(title)) {
+      log("debug", "session ignored (title match)", { sessionID, title })
+      return true
+    }
+    return false
+  }
+
   const onIdle = (sessionID: string) => {
     if (sessionID !== lastActive) return
+    if (isIgnored(sessionID)) return
     const s = ensure(sessionID)
     if (config.requireEngagement && !s.engaged) return
     if (!s.enabled || s.pendingPoke) return
@@ -382,10 +400,18 @@ export const OpencodeIdlePokePlugin: Plugin = async (input, options) => {
         log("debug", "session.status", { sessionID, status: status.type })
         if (status.type === "busy" || status.type === "retry") clearTimer(sessionID)
         else if (status.type === "idle") onIdle(sessionID)
+      } else if (event.type === "session.created" || event.type === "session.updated") {
+        const sessionID = event.properties.info.id
+        const title = event.properties.info.title
+        if (title) {
+          sessionTitles.set(sessionID, title)
+          log("debug", "session title recorded", { sessionID, title })
+        }
       } else if (event.type === "session.deleted") {
         const sessionID = event.properties.info.id
         clearTimer(sessionID)
         sessions.delete(sessionID)
+        sessionTitles.delete(sessionID)
         log("debug", "session deleted", { sessionID })
       }
     },
@@ -393,6 +419,13 @@ export const OpencodeIdlePokePlugin: Plugin = async (input, options) => {
       if (predictorSessions.has(msg.sessionID)) return
       if (output.parts?.some((p) => (p as { synthetic?: boolean }).synthetic)) return
       const sessionID = msg.sessionID
+      if (sessionTitles.get(sessionID) === undefined) {
+        try {
+          const info = await client.session.get({ path: { id: sessionID } })
+          if (info.data?.title) sessionTitles.set(sessionID, info.data.title)
+        } catch {}
+      }
+      if (isIgnored(sessionID)) return
       const s = ensure(sessionID)
       if (msg.agent) s.agent = msg.agent
       if (msg.model) s.model = msg.model

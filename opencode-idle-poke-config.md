@@ -36,7 +36,8 @@ Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `ope
         "enabled": true,
         "level": "info",
         "file": "logs/opencode-idle-poke.log"
-      }
+      },
+      "ignoreSessionTitles": ["opencode-mem capture"]
     }]
   ]
 }
@@ -84,6 +85,7 @@ When configured in several places, the first match wins:
 | `predictor.timeoutMs` | number | `15000` | Timeout for the estimate. On timeout, the current interval is kept and the poke happens as usual. |
 | `predictor.prompt` | string | see Default Templates | The instructions given to the model for the estimate. |
 | `predictor.denyTools` | string[] | see Default Templates | Tools banned during the estimate. `edit` also covers write/apply_patch; `mcp__*` matches every MCP tool. Empty list = no restriction. |
+| `ignoreSessionTitles` | string[] | `[]` | An array of full session titles to completely ignore. A matched session gets no pokes and no restart notification, and its messages do not reset other sessions' reminder intervals. Useful for skipping transient sessions created by other plugins (e.g. `"opencode-mem capture"`). |
 | `logging.enabled` | boolean | `true` | Master switch for the log file. |
 | `logging.level` | string | `"info"` | `debug` (most verbose), `info`, `warn`, or `error`. |
 | `logging.file` | string | `"logs/opencode-idle-poke.log"` | Log file path. Relative paths resolve against the opencode config directory (default `~/.config/opencode`), so the log lands in `~/.config/opencode/logs/`. Absolute paths work too. Empty string = no log file. Files over 10 MB are deleted and recreated automatically. |
@@ -198,7 +200,8 @@ Example:
         "enabled": true,
         "level": "info",
         "file": "logs/opencode-idle-poke.log"
-      }
+      },
+      "ignoreSessionTitles": ["opencode-mem capture"]
     }]
   ]
 }
@@ -246,6 +249,7 @@ Example:
 | `predictor.timeoutMs` | number | `15000` | 评估超时（毫秒）；超时则保留当前间隔照常搭话。 |
 | `predictor.prompt` | string | 见默认模板 | 评估时给模型的提示。 |
 | `predictor.denyTools` | string[] | 见默认模板 | 评估时禁止使用的工具。`edit` 同时涵盖 write/apply_patch；`mcp__*` 匹配全部 MCP 工具；置空数组 = 不做限制。 |
+| `ignoreSessionTitles` | string[] | `[]` | 匹配的会话不搭话、不注入重启通知，其消息也不会重置其他会话的搭话间隔。用于跳过其他插件创建的临时会话（例如 `"opencode-mem capture"`）。 |
 | `logging.enabled` | boolean | `true` | 日志总开关。 |
 | `logging.level` | string | `"info"` | `debug`（最详细）/`info`/`warn`/`error`。 |
 | `logging.file` | string | `"logs/opencode-idle-poke.log"` | 日志路径。相对路径按 opencode 配置目录解析（默认 `~/.config/opencode`），落在 `~/.config/opencode/logs/`；也支持绝对路径；空字符串 = 不写日志。超过 10MB 自动删除重建。 |
