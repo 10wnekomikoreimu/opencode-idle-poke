@@ -5,6 +5,8 @@ import {
   userMessage,
   idleEvent,
   busyEvent,
+  createdEvent,
+  updatedEvent,
   setConfigFixture,
   resetConfig,
   pokes,
@@ -183,6 +185,70 @@ describe("plugin lifecycle", () => {
     await p.event({
       event: { type: "session.status", properties: { sessionID: "s1", status: { type: "retry" } } },
     })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await p.dispose()
+  })
+
+  it("ignored session messages do not clear timers, inject notifications, or become lastActive", async () => {
+    setConfigFixture({ ignoreSessionTitles: ["opencode-mem capture"], logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const a = userMessage("s1")
+    await p["chat.message"](a.input, a.output)
+    await p.event(idleEvent("s1"))
+    await p.event(createdEvent("sub-cap", "opencode-mem capture"))
+    const b = userMessage("sub-cap")
+    await p["chat.message"](b.input, b.output)
+    expect(calls.get.map((c) => c.path.id)).not.toContain("sub-cap")
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.path.id).toBe("s1")
+    expect(notifications(calls).every((n) => n.path.id === "s1")).toBe(true)
+    await p.dispose()
+  })
+
+  it("chat.message falls back to session.get when no title event was seen", async () => {
+    setConfigFixture({ ignoreSessionTitles: ["opencode-mem capture"], logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    client.setTitle("sub-cap", "opencode-mem capture")
+    const p = await makePlugin(client)
+    const a = userMessage("s1")
+    await p["chat.message"](a.input, a.output)
+    await p.event(idleEvent("s1"))
+    const b = userMessage("sub-cap")
+    await p["chat.message"](b.input, b.output)
+    expect(calls.get.map((c) => c.path.id)).toContain("sub-cap")
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.path.id).toBe("s1")
+    await p.dispose()
+  })
+
+  it("onIdle ignores a session whose title matches after a rename", async () => {
+    setConfigFixture({ ignoreSessionTitles: ["opencode-mem capture"], logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const msg = userMessage("s1")
+    await p["chat.message"](msg.input, msg.output)
+    await p.event(updatedEvent("s1", "opencode-mem capture"))
+    await p.event(idleEvent("s1"))
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await p.dispose()
+  })
+
+  it("a non-matching title still behaves as a normal focus switch", async () => {
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const a = userMessage("s1")
+    await p["chat.message"](a.input, a.output)
+    await p.event(idleEvent("s1"))
+    await p.event(createdEvent("s2", "regular conversation"))
+    const b = userMessage("s2")
+    await p["chat.message"](b.input, b.output)
     await vi.advanceTimersByTimeAsync(120_000)
     expect(pokes(calls)).toHaveLength(0)
     await p.dispose()

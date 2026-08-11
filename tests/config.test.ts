@@ -7,6 +7,7 @@ import {
   userMessage,
   idleEvent,
   deletedEvent,
+  createdEvent,
   setConfigFixture,
   setJsonFixture,
   resetConfig,
@@ -341,6 +342,38 @@ describe("config loading", () => {
     const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
     expect(subPrompt.body.agent).toBeUndefined()
     expect(subPrompt.body.model).toEqual({ providerID: "p", modelID: "m" })
+    await p.dispose()
+  })
+
+  it("non-array ignoreSessionTitles falls back to the empty default", async () => {
+    setConfigFixture({ ignoreSessionTitles: "opencode-mem capture", logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const a = userMessage("s1")
+    await p["chat.message"](a.input, a.output)
+    await p.event(idleEvent("s1"))
+    await p.event(createdEvent("sub-cap", "opencode-mem capture"))
+    const b = userMessage("sub-cap")
+    await p["chat.message"](b.input, b.output)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(pokes(calls)).toHaveLength(0)
+    await p.dispose()
+  })
+
+  it("ignoreSessionTitles filters out non-string entries and ignores the rest", async () => {
+    setConfigFixture({ ignoreSessionTitles: [42, "opencode-mem capture", null], logging: { enabled: false } })
+    const { client, calls } = makeClient()
+    const p = await makePlugin(client)
+    const a = userMessage("s1")
+    await p["chat.message"](a.input, a.output)
+    await p.event(idleEvent("s1"))
+    await p.event(createdEvent("sub-cap", "opencode-mem capture"))
+    const b = userMessage("sub-cap")
+    await p["chat.message"](b.input, b.output)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const poke = pokes(calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.path.id).toBe("s1")
     await p.dispose()
   })
 })

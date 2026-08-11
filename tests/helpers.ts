@@ -34,21 +34,29 @@ export type PromptHandler = (arg: PromptArg) => Promise<{ data: { parts: unknown
 
 export type ClientCalls = {
   messages: Array<{ path: { id: string } }>
+  get: Array<{ path: { id: string } }>
   create: Array<{ query: { directory: string }; id: string }>
   prompt: PromptArg[]
   delete: Array<{ path: { id: string } }>
 }
 
 export function makeClient() {
-  const calls: ClientCalls = { messages: [], create: [], prompt: [], delete: [] }
+  const calls: ClientCalls = { messages: [], get: [], create: [], prompt: [], delete: [] }
   let messagesData: unknown[] = []
   let promptHandler: PromptHandler | undefined
+  const titles = new Map<string, string>()
 
   const client = {
     session: {
       messages: async (arg: { path: { id: string } }) => {
         calls.messages.push(arg)
         return { data: messagesData }
+      },
+      get: async (arg: { path: { id: string } }) => {
+        calls.get.push(arg)
+        const title = titles.get(arg.path.id)
+        if (title === undefined) throw new Error("session not found")
+        return { data: { id: arg.path.id, title } }
       },
       create: async (arg: { query: { directory: string } }) => {
         const id = `sub-${calls.create.length + 1}`
@@ -70,6 +78,10 @@ export function makeClient() {
     setPromptHandler(fn: PromptHandler | undefined) {
       promptHandler = fn
     },
+    setTitle(sessionID: string, title: string | undefined) {
+      if (title === undefined) titles.delete(sessionID)
+      else titles.set(sessionID, title)
+    },
   }
 
   return {
@@ -80,6 +92,10 @@ export function makeClient() {
     },
     setPromptHandler(fn: PromptHandler | undefined) {
       promptHandler = fn
+    },
+    setTitle(sessionID: string, title: string | undefined) {
+      if (title === undefined) titles.delete(sessionID)
+      else titles.set(sessionID, title)
     },
   }
 }
@@ -133,6 +149,14 @@ export function busyEvent(sessionID: string) {
 
 export function deletedEvent(id: string) {
   return { event: { type: "session.deleted", properties: { info: { id } } } } as any
+}
+
+export function createdEvent(id: string, title?: string) {
+  return { event: { type: "session.created", properties: { info: { id, title } } } } as any
+}
+
+export function updatedEvent(id: string, title: string) {
+  return { event: { type: "session.updated", properties: { info: { id, title } } } } as any
 }
 
 export function pokes(calls: ClientCalls): PromptArg[] {
