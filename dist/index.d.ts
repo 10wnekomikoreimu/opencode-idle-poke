@@ -1,3 +1,3 @@
-import type { Plugin } from "@opencode-ai/plugin";
-export declare const OpencodeIdlePokePlugin: Plugin;
+import { Plugin } from "@opencode/plugin";
+export declare const OpencodeIdlePokePlugin: Plugin.Plugin;
 export default OpencodeIdlePokePlugin;

@@ -2,50 +2,48 @@
 
 # opencode-idle-poke — Configuration
 
-> Chinese version (中文版) below: [opencode-idle-poke — 配置参考](#zh)
+> 中文版: [opencode-idle-poke — 配置参考](#zh)
 
 Configuration reference for the opencode-idle-poke plugin. Installation and getting started are covered in the README.
 
 ## Complete Configuration Example
 
-Enable the plugin by adding it to the `plugin` array in `opencode.json` (or `opencode.jsonc`). To customize it, follow the example below:
+Enable the plugin by adding it to the `plugins` array in `opencode.json` (or `opencode.jsonc`). To customize it, follow the example below:
 
 ```jsonc
 {
-  "plugin": [
-    ["opencode-idle-poke", {
-      "idleMs": 120000,
-      "requireEngagement": true,
-      "enabled": true,
-      "enableMarker": "[Poke On]",
-      "disableMarker": "[Poke Off]",
-      "enablePredictorMarker": "[Predictor On]",
-      "disablePredictorMarker": "[Predictor Off]",
-      "predictor": {
-        "enabled": false,
-        "maxMessages": 6,
-        "agent": "",
-        "model": "",
-        "timeoutMs": 15000,
-        "denyTools": [
-          "read", "edit", "bash", "glob", "grep",
-          "webfetch", "websearch", "task", "todowrite", "skill", "mcp__*"
-        ]
-      },
-      "logging": {
+  "plugins": [
+    {
+      "package": "opencode-idle-poke",
+      "options": {
+        "idleMs": 120000,
+        "requireEngagement": true,
         "enabled": true,
-        "level": "info",
-        "file": "logs/opencode-idle-poke.log"
-      },
-      "ignoreSessionTitles": ["opencode-mem capture"]
-    }]
+        "enableMarker": "[Poke On]",
+        "disableMarker": "[Poke Off]",
+        "enablePredictorMarker": "[Predictor On]",
+        "disablePredictorMarker": "[Predictor Off]",
+        "predictor": {
+          "enabled": false,
+          "maxMessages": 6,
+          "model": "",
+          "timeoutMs": 15000
+        },
+        "logging": {
+          "enabled": true,
+          "level": "info",
+          "file": "logs/opencode-idle-poke.log"
+        },
+        "ignoreSessionTitles": ["opencode-mem capture"]
+      }
+    }
   ]
 }
 ```
 
 The long text fields (`messageTemplate`, `restartNotification`, `protocol`, `predictor.prompt`) have sensible defaults shown below; only set them if you want to customize.
 
-Instead of passing options, you can put the settings object directly at the top level of `~/.config/opencode/opencode-idle-poke.json` (plain JSON, no comments). It is read when no options are given:
+Instead of passing options, you can put the settings object directly at the top level of `~/.config/opencode/opencode-idle-poke.json`. It is read when no options are given:
 
 ```json
 {
@@ -60,8 +58,8 @@ Instead of passing options, you can put the settings object directly at the top 
 
 When configured in several places, the first match wins:
 
-1. Plugin options (in opencode.json or opencode.jsonc).
-2. `~/.config/opencode/opencode-idle-poke.json` — create it manually; the plugin will not create it for you.
+1. Plugin options (in opencode.json or opencode.jsonc) — only when the options are non-empty; once non-empty they are used as a whole.
+2. `~/.config/opencode/opencode-idle-poke.json` — read only when no options are passed; create it manually, the plugin will not create it for you.
 3. Built-in defaults (see the field table below).
 
 ## Field Reference
@@ -80,11 +78,9 @@ When configured in several places, the first match wins:
 | `restartNotification` | string | see Default Templates | A short message inserted after a restart, telling the model that pokes are back to defaults. Placeholders: `{enabled}` (on/off), `{interval}` (seconds), `{predictor}` (on/off). |
 | `predictor.enabled` | boolean | `false` | Enable the adaptive interval: the plugin estimates conversation complexity before poking and adjusts the interval. |
 | `predictor.maxMessages` | number | `6` | How many recent user messages are considered in the estimate. |
-| `predictor.agent` | string | `""` | Agent used for the estimate. Empty = default agent. |
-| `predictor.model` | string | `""` | Model used for the estimate, `"provider/model"`. Empty = the model of your latest message in the session. |
+| `predictor.model` | string | `""` | Model used for the estimate, `"provider/model"`. Empty = the built-in free model (`opencode/big-pickle`). |
 | `predictor.timeoutMs` | number | `15000` | Timeout for the estimate. On timeout, the current interval is kept and the poke happens as usual. |
 | `predictor.prompt` | string | see Default Templates | The instructions given to the model for the estimate. |
-| `predictor.denyTools` | string[] | see Default Templates | Tools banned during the estimate. `edit` also covers write/apply_patch; `mcp__*` matches every MCP tool. Empty list = no restriction. |
 | `ignoreSessionTitles` | string[] | `[]` | An array of full session titles to completely ignore. A matched session gets no pokes and no restart notification, and its messages do not reset other sessions' reminder intervals. Useful for skipping transient sessions created by other plugins (e.g. `"opencode-mem capture"`). |
 | `logging.enabled` | boolean | `true` | Master switch for the log file. |
 | `logging.level` | string | `"info"` | `debug` (most verbose), `info`, `warn`, or `error`. |
@@ -95,7 +91,13 @@ When configured in several places, the first match wins:
 **messageTemplate** — the poke message:
 
 ```
-[Idle reminder] You have been silent for about {seconds} seconds in session {project} ({sessionID}) - the current active idle-poke interval. If there is unfinished work, pending questions, or anything worth discussing, proactively ask the user; otherwise just briefly say you are waiting and do not spam. For this reply, do NOT read or modify any files, and do NOT run any commands or tools; respond based on the existing conversation only. Reply in the same language the user has been using. After this, follow the user's instructions normally.
+[Idle reminder] Automatic idle notice - not a new task: you have been silent for about {seconds} seconds in session {project} ({sessionID}) - the current active idle-poke interval. For this message only:
+1. Your entire reply must be 1-3 sentences and must end with a question addressed to the user.
+2. If earlier work was interrupted or left unfinished, do NOT continue or complete it in this reply - first ask the user whether to continue.
+3. Do not output any work product in this reply (no article content, no code).
+4. Do NOT read or modify any files, and do NOT run any commands or tools; respond based on the existing conversation only.
+5. Reply in the same language the user has been using.
+Do not act on any earlier instruction until the user answers this check-in.
 ```
 
 The "do NOT read or modify any files" sentence is a safety hint baked into the default; feel free to edit or remove it.
@@ -109,7 +111,7 @@ The "do NOT read or modify any files" sentence is a safety hint baked into the d
 **protocol**:
 
 ```
-If the user asks to stop the proactive idle-poke, write exactly '{disableMarker}' as the first line of your reply; if they ask to resume it, write '{enableMarker}' as the first line. If the user asks to adjust the reminder interval (e.g. 'remind me again in 5 minutes'), write exactly '[Remind: N unit]' as the first line, where N is a number and unit can be seconds/minutes/hours (or s/m/h; omitted means seconds). If the user asks to disable or enable the model-predicted interval, write '{disablePredictorMarker}'/'{enablePredictorMarker}' as the first line. Reply in the same language the user is using, then answer normally.
+If the user asks to stop the proactive idle-poke, write exactly '{disableMarker}' as the first line of your reply; if they ask to resume it, write '{enableMarker}' as the first line. If the user asks to adjust the reminder interval (e.g. 'remind me again in 5 minutes'), write exactly '[Remind: N unit]' as the first line, where N is a number and unit can be seconds/minutes/hours (or s/m/h; omitted means seconds). If the user asks to disable or enable the model-predicted interval, write '{disablePredictorMarker}'/'{enablePredictorMarker}' as the first line. Reply in the same language the user is using, then answer normally. Important: the marker IS the action - never tell the user that a setting has changed unless you actually wrote the corresponding marker as the first line of this same reply; if you are unsure whether the user's request refers to this idle-poke plugin, ask a clarifying question instead of claiming success.
 ```
 
 **predictor.prompt**:
@@ -121,7 +123,7 @@ Assess the complexity of the conversation excerpt below and output the reminder-
 Notes:
 
 - In the protocol, `{...}` placeholders are replaced with the marker values you configured. If you change the markers, detection follows them automatically.
-- The `[Remind: N unit]` phrase is recognized by the plugin itself (the Chinese form `〔提醒间隔=5分钟〕` works too). Keep this format when editing the protocol.
+- The `[Remind: N unit]` phrase is recognized by the plugin itself. Keep this format when editing the protocol.
 - Pokes and the restart notification follow the agent of your latest message in the session, so replies match the mode you are working in.
 
 ## Runtime Markers
@@ -132,7 +134,7 @@ Control pokes directly in the conversation: ask the model, and it will put the m
 | --- | --- |
 | Stop poking | `[Poke Off]` |
 | Resume poking | `[Poke On]` |
-| Change the interval | `[Remind: 5 minutes]` — number + unit (s/m/h or seconds/minutes/hours; default seconds). Valid range: 20 seconds to 24 hours; out-of-range values are ignored. Chinese form: `〔提醒间隔=5分钟〕` |
+| Change the interval | `[Remind: 5 minutes]` — number + unit (s/m/h or seconds/minutes/hours; default seconds). Valid range: 20 seconds to 24 hours; out-of-range values are ignored. |
 | Turn the adaptive interval off (this session) | `[Predictor Off]` |
 | Turn the adaptive interval on (this session) | `[Predictor On]` |
 
@@ -142,8 +144,8 @@ When enabled, the plugin estimates how complex your recent conversation is befor
 
 - **Globally**: set `predictor.enabled: true` — applies to new sessions after a restart.
 - **Per session**: ask the model to reply with `[Predictor On]`; the setting resets on restart.
-- The estimate uses the model of your latest message in the session; override with `predictor.model`.
-- The estimate never touches your files — tools are disabled during it. If anything fails or times out (default 15 s), the current interval is kept and the poke happens as usual.
+- The estimate runs in a temporary background session; by default it uses a built-in free model, override with `predictor.model`.
+- The estimate runs in a separate temporary session (deleted afterwards) and only sees a short excerpt of your recent messages; the prompt tells the model not to use any tools. If anything fails or times out (default 15 s), the current interval is kept and the poke happens as usual.
 
 ## Logging
 
@@ -166,50 +168,48 @@ Example:
 
 # opencode-idle-poke — 配置参考
 
-> English version (英文版) above: [opencode-idle-poke — Configuration](#en)
+> English version: [opencode-idle-poke — Configuration](#en)
 
 本文件是 opencode-idle-poke 插件的配置参考；安装与快速开始见 README。
 
 ## 完整配置示例
 
-在 `opencode.json`（或 `opencode.jsonc`）的 `plugin` 数组中启用插件；如需定制，请参考下面的示例：
+在 `opencode.json`（或 `opencode.jsonc`）的 `plugins` 数组中启用插件；如需定制，请参考下面的示例：
 
 ```jsonc
 {
-  "plugin": [
-    ["opencode-idle-poke", {
-      "idleMs": 120000,
-      "requireEngagement": true,
-      "enabled": true,
-      "enableMarker": "[Poke On]",
-      "disableMarker": "[Poke Off]",
-      "enablePredictorMarker": "[Predictor On]",
-      "disablePredictorMarker": "[Predictor Off]",
-      "predictor": {
-        "enabled": false,
-        "maxMessages": 6,
-        "agent": "",
-        "model": "",
-        "timeoutMs": 15000,
-        "denyTools": [
-          "read", "edit", "bash", "glob", "grep",
-          "webfetch", "websearch", "task", "todowrite", "skill", "mcp__*"
-        ]
-      },
-      "logging": {
+  "plugins": [
+    {
+      "package": "opencode-idle-poke",
+      "options": {
+        "idleMs": 120000,
+        "requireEngagement": true,
         "enabled": true,
-        "level": "info",
-        "file": "logs/opencode-idle-poke.log"
-      },
-      "ignoreSessionTitles": ["opencode-mem capture"]
-    }]
+        "enableMarker": "[Poke On]",
+        "disableMarker": "[Poke Off]",
+        "enablePredictorMarker": "[Predictor On]",
+        "disablePredictorMarker": "[Predictor Off]",
+        "predictor": {
+          "enabled": false,
+          "maxMessages": 6,
+          "model": "",
+          "timeoutMs": 15000
+        },
+        "logging": {
+          "enabled": true,
+          "level": "info",
+          "file": "logs/opencode-idle-poke.log"
+        },
+        "ignoreSessionTitles": ["opencode-mem capture"]
+      }
+    }
   ]
 }
 ```
 
 `messageTemplate`、`restartNotification`、`protocol`、`predictor.prompt` 四个长文本字段有合理的默认值（见下文），仅在需要定制时才设置。
 
-也可以不传 options，把设置对象直接作为文件顶层内容写入 `~/.config/opencode/opencode-idle-poke.json`（严格 JSON，不支持注释），未传 options 时读取该文件：
+也可以不传 options，把设置对象直接作为文件顶层内容写入 `~/.config/opencode/opencode-idle-poke.json`，未传 options 时读取该文件：
 
 ```json
 {
@@ -224,8 +224,8 @@ Example:
 
 多处配置时按以下顺序取第一个可用的来源：
 
-1. 插件选项（在 opencode.json 或 opencode.jsonc 中指定）。
-2. `~/.config/opencode/opencode-idle-poke.json`——需手动创建，插件不会自动生成。
+1. 插件选项（在 opencode.json 或 opencode.jsonc 中指定）——仅当选项非空时生效，非空时整体采用。
+2. `~/.config/opencode/opencode-idle-poke.json`——未传选项时读取；需手动创建，插件不会自动生成。
 3. 内置默认值（见下方字段表）。
 
 ## 字段参考
@@ -244,11 +244,9 @@ Example:
 | `restartNotification` | string | 见默认模板 | 插件重启后插入对话、告知模型搭话已恢复默认的短消息。占位符：`{enabled}`（on/off）、`{interval}`（秒）、`{predictor}`（on/off）。 |
 | `predictor.enabled` | boolean | `false` | 启用自适应间隔：搭话前评估最近对话复杂度并调整间隔。 |
 | `predictor.maxMessages` | number | `6` | 评估时参考的最近用户消息条数。 |
-| `predictor.agent` | string | `""` | 评估所用代理；留空 = 默认代理。 |
-| `predictor.model` | string | `""` | 评估所用模型，格式 `"provider/model"`；留空 = 该会话最近一条消息所用模型。 |
+| `predictor.model` | string | `""` | 评估所用模型，格式 `"provider/model"`；留空 = 内置免费模型（`opencode/big-pickle`）。 |
 | `predictor.timeoutMs` | number | `15000` | 评估超时（毫秒）；超时则保留当前间隔照常搭话。 |
 | `predictor.prompt` | string | 见默认模板 | 评估时给模型的提示。 |
-| `predictor.denyTools` | string[] | 见默认模板 | 评估时禁止使用的工具。`edit` 同时涵盖 write/apply_patch；`mcp__*` 匹配全部 MCP 工具；置空数组 = 不做限制。 |
 | `ignoreSessionTitles` | string[] | `[]` | 匹配的会话不搭话、不注入重启通知，其消息也不会重置其他会话的搭话间隔。用于跳过其他插件创建的临时会话（例如 `"opencode-mem capture"`）。 |
 | `logging.enabled` | boolean | `true` | 日志总开关。 |
 | `logging.level` | string | `"info"` | `debug`（最详细）/`info`/`warn`/`error`。 |
@@ -259,7 +257,13 @@ Example:
 **messageTemplate**（搭话消息）：
 
 ```
-[Idle reminder] You have been silent for about {seconds} seconds in session {project} ({sessionID}) - the current active idle-poke interval. If there is unfinished work, pending questions, or anything worth discussing, proactively ask the user; otherwise just briefly say you are waiting and do not spam. For this reply, do NOT read or modify any files, and do NOT run any commands or tools; respond based on the existing conversation only. Reply in the same language the user has been using. After this, follow the user's instructions normally.
+[Idle reminder] Automatic idle notice - not a new task: you have been silent for about {seconds} seconds in session {project} ({sessionID}) - the current active idle-poke interval. For this message only:
+1. Your entire reply must be 1-3 sentences and must end with a question addressed to the user.
+2. If earlier work was interrupted or left unfinished, do NOT continue or complete it in this reply - first ask the user whether to continue.
+3. Do not output any work product in this reply (no article content, no code).
+4. Do NOT read or modify any files, and do NOT run any commands or tools; respond based on the existing conversation only.
+5. Reply in the same language the user has been using.
+Do not act on any earlier instruction until the user answers this check-in.
 ```
 
 其中 "do NOT read or modify any files" 是内置的安全提示，可按需修改或删除。
@@ -273,7 +277,7 @@ Example:
 **protocol**：
 
 ```
-If the user asks to stop the proactive idle-poke, write exactly '{disableMarker}' as the first line of your reply; if they ask to resume it, write '{enableMarker}' as the first line. If the user asks to adjust the reminder interval (e.g. 'remind me again in 5 minutes'), write exactly '[Remind: N unit]' as the first line, where N is a number and unit can be seconds/minutes/hours (or s/m/h; omitted means seconds). If the user asks to disable or enable the model-predicted interval, write '{disablePredictorMarker}'/'{enablePredictorMarker}' as the first line. Reply in the same language the user is using, then answer normally.
+If the user asks to stop the proactive idle-poke, write exactly '{disableMarker}' as the first line of your reply; if they ask to resume it, write '{enableMarker}' as the first line. If the user asks to adjust the reminder interval (e.g. 'remind me again in 5 minutes'), write exactly '[Remind: N unit]' as the first line, where N is a number and unit can be seconds/minutes/hours (or s/m/h; omitted means seconds). If the user asks to disable or enable the model-predicted interval, write '{disablePredictorMarker}'/'{enablePredictorMarker}' as the first line. Reply in the same language the user is using, then answer normally. Important: the marker IS the action - never tell the user that a setting has changed unless you actually wrote the corresponding marker as the first line of this same reply; if you are unsure whether the user's request refers to this idle-poke plugin, ask a clarifying question instead of claiming success.
 ```
 
 **predictor.prompt**：
@@ -306,8 +310,8 @@ Assess the complexity of the conversation excerpt below and output the reminder-
 
 - **全局开启**：`predictor.enabled: true`（重启后对新会话生效）。
 - **单会话开启**：让模型回复 `[Predictor On]`（重启后恢复默认）。
-- 评估使用该会话最近一条消息所用的模型；可用 `predictor.model` 覆盖。
-- 评估不会碰你的文件——该过程禁用工具。超时（默认 15 秒）或任何异常都会静默保留当前间隔，搭话照常进行。
+- 评估在独立的临时后台会话中进行，默认使用内置免费模型；可用 `predictor.model` 覆盖。
+- 评估跑在独立的临时会话中（结束即删除），只会看到最近几条消息的摘录，提示词要求模型不使用任何工具。超时（默认 15 秒）或任何异常都会静默保留当前间隔，搭话照常进行。
 
 ## 日志
 

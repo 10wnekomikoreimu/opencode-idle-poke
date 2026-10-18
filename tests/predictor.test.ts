@@ -1,30 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import {
-  makeClient,
   makePlugin,
-  userMessage,
-  idleEvent,
+  runPrompt,
+  pokes,
   setConfigFixture,
   resetConfig,
-  pokes,
+  advance,
   deferred,
 } from "./helpers"
-
-const PRED = { enabled: true, maxMessages: 6, agent: "", model: "", timeoutMs: 15_000, prompt: "assess", denyTools: ["read", "bash"] }
-
-function markerHandler(reply = "[Remind: 2 minutes]") {
-  return async (arg: any) => {
-    if (arg.path.id.startsWith("sub-")) {
-      return { data: { parts: [{ type: "text", text: reply, synthetic: false }] } }
-    }
-    return { data: { parts: [] } }
-  }
-}
 
 describe("predictor", () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    setConfigFixture({ predictor: PRED, idleMs: 60_000, logging: { enabled: false } })
+    setConfigFixture({ predictor: { enabled: true }, idleMs: 60_000, logging: { enabled: false } })
   })
 
   afterEach(() => {
@@ -33,235 +21,220 @@ describe("predictor", () => {
   })
 
   it("skips prediction when disabled", async () => {
-    setConfigFixture({ predictor: { ...PRED, enabled: false }, logging: { enabled: false } })
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(0)
-    expect(pokes(calls)).toHaveLength(1)
-    await p.dispose()
-  })
-
-  it("skips prediction when no model is known", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    const p = await makePlugin(client)
-    const msg = userMessage("s1")
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(0)
-    await p.dispose()
+    setConfigFixture({ predictor: { enabled: false }, idleMs: 60_000, logging: { enabled: false } })
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 2 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.context).toHaveLength(0)
+    expect(h.calls.create).toHaveLength(0)
+    expect(pokes(h.calls)).toHaveLength(1)
+    await h.cleanup()
   })
 
   it("skips prediction when there is no user-message excerpt", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "assistant" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(0)
-    expect(pokes(calls)).toHaveLength(1)
-    await p.dispose()
+    const h = await makePlugin()
+    h.setContextData([
+      { type: "assistant", text: "answer" },
+      { type: "synthetic", text: "poke noise" },
+    ])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 2 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(0)
+    expect(pokes(h.calls)).toHaveLength(1)
+    await h.cleanup()
+  })
+
+  it("skips prediction when session.context returns a non-array", async () => {
+    const h = await makePlugin()
+    h.setContextData(null as unknown as unknown[])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 2 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(0)
+    const poke = pokes(h.calls)[0]
+    expect(poke).toBeTruthy()
+    expect(poke.text).toContain("about 60 seconds")
+    await h.cleanup()
   })
 
   it("runs prediction, parses the marker, and updates the interval", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "explain X", synthetic: false }] }])
-    client.setPromptHandler(markerHandler("[Remind: 2 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" }, agent: "build" })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(1)
-    expect(calls.create[0].query.directory).toBe("C:\\Users\\test\\proj")
-    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
-    expect(subPrompt).toBeTruthy()
-    expect(subPrompt.body.parts[0].synthetic).toBe(true)
-    expect(subPrompt.body.parts[0].text).toContain("explain X")
-    expect(subPrompt.body.system).toBe("assess")
-    expect(subPrompt.body.model).toEqual({ providerID: "p", modelID: "m" })
-    expect(subPrompt.body.tools.read).toBe(false)
-    expect(calls.delete).toHaveLength(1)
-    expect(calls.delete[0].path.id).toBe(subPrompt.path.id)
-    const first = pokes(calls)[0]
-    expect(first.body.parts[0].text).toContain("about 60 seconds")
-    expect(first.body.agent).toBe("build")
-    const msg2 = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg2.input, msg2.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(pokes(calls)).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(pokes(calls)).toHaveLength(2)
-    expect(pokes(calls)[1].body.parts[0].text).toContain("about 120 seconds")
-    await p.dispose()
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "explain X" }])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 2 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+
+    expect(h.calls.create).toHaveLength(1)
+    expect(h.calls.create[0].model).toEqual({ providerID: "opencode", id: "big-pickle" })
+    expect(h.calls.create[0].location?.directory).toBe("C:\\Users\\test\\proj")
+    expect(h.calls.generate).toHaveLength(1)
+    expect(h.calls.generate[0].sessionID).toBe(h.calls.create[0].id)
+    expect(h.calls.generate[0].prompt).toContain("explain X")
+    expect(h.calls.remove).toHaveLength(1)
+    expect(h.calls.remove[0].sessionID).toBe(h.calls.create[0].id)
+    const first = pokes(h.calls)[0]
+    expect(first.text).toContain("about 60 seconds")
+
+    // 第二回合：interval 已被预测为 120s
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(pokes(h.calls)).toHaveLength(1)
+    await advance(60_000)
+    expect(pokes(h.calls)).toHaveLength(2)
+    expect(pokes(h.calls)[1].text).toContain("about 120 seconds")
+    await h.cleanup()
   })
 
-  it("pred.model override wins over the session model", async () => {
-    setConfigFixture({ predictor: { ...PRED, model: "openai/gpt-4o" }, logging: { enabled: false } })
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(markerHandler("[Remind: 1 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "session", modelID: "model-x" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
-    expect(subPrompt.body.model).toEqual({ providerID: "openai", modelID: "gpt-4o" })
-    await p.dispose()
+  it("predictor.model override wins over the default model", async () => {
+    setConfigFixture({
+      predictor: { enabled: true, model: "openai/gpt-4o" },
+      idleMs: 60_000,
+      logging: { enabled: false },
+    })
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 1 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(1)
+    expect(h.calls.create[0].model).toEqual({ providerID: "openai", id: "gpt-4o" })
+    await h.cleanup()
   })
 
-  it("invalid pred.model format falls back to the session model", async () => {
-    setConfigFixture({ predictor: { ...PRED, model: "no-slash" }, logging: { enabled: false } })
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(markerHandler("[Remind: 1 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "session", modelID: "model-x" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
-    expect(subPrompt.body.model).toEqual({ providerID: "session", modelID: "model-x" })
-    await p.dispose()
+  it("invalid predictor.model format falls back to the default model", async () => {
+    setConfigFixture({
+      predictor: { enabled: true, model: "no-slash" },
+      idleMs: 60_000,
+      logging: { enabled: false },
+    })
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 1 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(1)
+    expect(h.calls.create[0].model).toEqual({ providerID: "opencode", id: "big-pickle" })
+    await h.cleanup()
   })
 
-  it("empty denyTools omits the tools field", async () => {
-    setConfigFixture({ predictor: { ...PRED, denyTools: [] }, logging: { enabled: false } })
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(markerHandler("[Remind: 1 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
-    expect(subPrompt.body.tools).toBeUndefined()
-    await p.dispose()
+  it("generate receives only {sessionID, prompt} (no agent/tools/system fields)", async () => {
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 1 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.generate).toHaveLength(1)
+    expect(Object.keys(h.calls.generate[0]).sort()).toEqual(["prompt", "sessionID"])
+    await h.cleanup()
+  })
+
+  it("excludes synthetic context entries from the excerpt", async () => {
+    const h = await makePlugin()
+    h.setContextData([
+      { type: "user", text: "real question" },
+      { type: "synthetic", text: "synthetic noise" },
+    ])
+    h.setGenerateHandler(async () => ({ text: "[Remind: 2 minutes]" }))
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    const prompt = h.calls.generate[0].prompt
+    expect(prompt).toContain("real question")
+    expect(prompt).not.toContain("synthetic noise")
+    await h.cleanup()
   })
 
   it("timeouts after timeoutMs and falls back to the fixed interval", async () => {
-    const gate = deferred<{ data: { parts: unknown[] } }>()
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(async (arg) => {
-      if (arg.path.id.startsWith("sub-")) return gate.promise
-      return { data: { parts: [] } }
-    })
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    await vi.advanceTimersByTimeAsync(15_000)
-    expect(calls.delete).toHaveLength(1)
-    const poke = pokes(calls)[0]
-    expect(poke.body.parts[0].text).toContain("about 60 seconds")
-    await p.dispose()
-  })
-
-  it("ignores prediction for predictor sub-session prompts", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(markerHandler("[Remind: 2 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(1)
-    const subID = calls.create[0].id
-    expect(calls.prompt.some((c) => c.path.id === subID && c.body.system === "assess")).toBe(true)
-    await p.dispose()
-  })
-
-  it("excludes synthetic user messages from the excerpt", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([
-      { info: { role: "user" }, parts: [{ type: "text", text: "real question", synthetic: false }] },
-      { info: { role: "user" }, parts: [{ type: "text", text: "synthetic noise", synthetic: true }] },
-    ])
-    client.setPromptHandler(markerHandler("[Remind: 2 minutes]"))
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    const subPrompt = calls.prompt.find((c) => c.path.id.startsWith("sub-"))!
-    const text = subPrompt.body.parts[0].text
-    expect(text).toContain("real question")
-    expect(text).not.toContain("synthetic noise")
-    await p.dispose()
-  })
-
-  it("skips prediction when session.messages returns a non-array", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages(null as any)
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(0)
-    const poke = pokes(calls)[0]
+    const gate = deferred<{ text: string }>()
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(() => gate.promise)
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(1)
+    await advance(15_000)
+    expect(h.calls.remove).toHaveLength(1)
+    const poke = pokes(h.calls)[0]
     expect(poke).toBeTruthy()
-    expect(poke.body.parts[0].text).toContain("about 60 seconds")
-    await p.dispose()
+    expect(poke.text).toContain("about 60 seconds")
+    await h.cleanup()
   })
 
-  it("recovers when the predictor sub-prompt rejects", async () => {
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(async (arg: any) => {
-      if (arg.path.id.startsWith("sub-")) throw new Error("sub boom")
-      return { data: { parts: [] } }
+  it("recovers when the predictor generate rejects", async () => {
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    h.setGenerateHandler(async () => {
+      throw new Error("sub boom")
     })
-    const p = await makePlugin(client)
-    const msg = userMessage("s1", { model: { providerID: "p", modelID: "m" } })
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(calls.create).toHaveLength(1)
-    expect(calls.delete).toHaveLength(1)
-    const poke = pokes(calls)[0]
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(1)
+    expect(h.calls.remove).toHaveLength(1)
+    const poke = pokes(h.calls)[0]
     expect(poke).toBeTruthy()
-    expect(poke.body.parts[0].text).toContain("about 60 seconds")
-    await p.dispose()
+    expect(poke.text).toContain("about 60 seconds")
+    await h.cleanup()
   })
 
   it("resets pendingPoke after a failed poke so it can retry", async () => {
+    setConfigFixture({ predictor: { enabled: false }, idleMs: 60_000, logging: { enabled: false } })
+    const h = await makePlugin()
     let attempts = 0
-    const { client, calls } = makeClient()
-    client.setMessages([{ info: { role: "user" }, parts: [{ type: "text", text: "q", synthetic: false }] }])
-    client.setPromptHandler(async (arg: any) => {
-      if (arg.path.id.startsWith("sub-")) return { data: { parts: [] } }
-      const text = (arg.body.parts as any[])?.[0]?.text ?? ""
-      if (text.startsWith("[System notification]")) return { data: { parts: [] } }
+    h.setSyntheticHandler(async () => {
       attempts++
       if (attempts === 1) throw new Error("main boom")
-      return { data: { parts: [{ type: "text", text: "ok", synthetic: false }] } }
+      return undefined
     })
-    const p = await makePlugin(client)
-    let msg = userMessage("s1")
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(pokes(calls)).toHaveLength(1)
-    msg = userMessage("s1")
-    await p["chat.message"](msg.input, msg.output)
-    await p.event(idleEvent("s1"))
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(pokes(calls)).toHaveLength(2)
-    await p.dispose()
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(pokes(h.calls)).toHaveLength(1)
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(pokes(h.calls)).toHaveLength(2)
+    expect(attempts).toBe(2)
+    await h.cleanup()
+  })
+
+  it("prompt hook ignores the predictor temp session while it is in flight", async () => {
+    const h = await makePlugin()
+    h.setContextData([{ type: "user", text: "q" }])
+    const gate = deferred<{ text: string }>()
+    let release: (() => void) | undefined
+    h.setGenerateHandler(async () => {
+      await new Promise<void>((res) => {
+        release = res
+      })
+      return gate.promise
+    })
+    await runPrompt(h, "s1")
+    await h.turnEnd("s1")
+    await advance(60_000)
+    expect(h.calls.create).toHaveLength(1)
+    expect(release).toBeDefined()
+    const subID = h.calls.create[0].id
+
+    // 闸①：对临时会话的 prompt 不做任何处理（不查标题、不产生新的 generate）
+    await runPrompt(h, subID)
+    expect(h.calls.get.map((c) => c.sessionID)).not.toContain(subID)
+    expect(h.calls.generate).toHaveLength(1)
+
+    release!()
+    await advance(0)
+    await h.cleanup()
   })
 })
